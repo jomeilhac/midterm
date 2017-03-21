@@ -1,0 +1,470 @@
+---
+title: "Midterm Project"
+author: "Joanna Meilhac"
+date: "March 13, 2017"
+output: html_document
+---
+
+I am preparing this data for analysis.
+I will build a dataset from 3 different ones: osha.dbf, viol.dbf and accid.dbf.
+
+I will clean each dataset and then join them together
+
+# Part 1: Cleaning osha.dbf
+
+## Reading the files
+
+```{r message=FALSE}
+
+library(magrittr)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(knitr)
+library(foreign)
+library(ggplot2)
+a <- read.dbf("accid.dbf")
+v <- read.dbf("viol.dbf")
+o <- read.dbf("osha.dbf")
+
+
+lookAcc <- read.dbf("lookups/acc.dbf")
+lookhzs <- read.dbf("lookups/hzs.dbf")
+lookocc <- read.dbf("lookups/occ.dbf")
+lookSTD <- read.dbf("lookups/STD.dbf")
+looksic <- read.dbf("lookups/sic.dbf")
+lookNAIC <- read.dbf("lookups/naics.dbf")
+lookscc <- read.dbf("lookups/scc.dbf")
+
+```
+
+## Cleaning up OSHA file
+
+
+
+Some of the variables in the OSHA file:  
+
+**CONTFLAG** : indicates whether record is continuation of previous record. This could be interesting if multiple establishments have a large number of proposed violations. A lot of the values in this column seem to be blank - meaning these violations would be the only ones for that company. We can see in the data that CONTFLAG has only two levels: 1 and 9. Let's count how many observations are in each level.
+
+```{r}
+count(filter(o, CONTFLAG == "1"))
+count(filter(o, CONTFLAG == "9"))
+
+```
+
+There are only 2 observations which do not have a NA value in the CONTFLAG variable, which means only two establishments have a continuing record of violations. I will choose to take this variable out of the data.  
+    
+**JOBTITLE** : indicates the job classification of the officer conducting the inspection. I can take this variable out.  
+  
+**OWNERCODE**: Code if the type of owner = D (federal govt). When we count to see how many observations will have a value in this column, we find that 222 have codes for type of federal govt. I will take this variable out since it represents less than 0.3% of the data
+```{r}
+count(filter(o, OWNERCODE>0))
+```
+
+I do the same for other variables that are not of any interest to finding the most dangerous workplace. Here are the variables I will select:
+
+OSHA1MOD - latest date activity applied against record  
+PREVCTTYP - type of most recent OSHA activity, if any  
+ACTIVITYNO - ID number for inspection record  
+ESTABNAME - name of establishment  
+SITEZIP - zipcode of site  
+SITECITY - city code (see scc.dbf)  
+SITECNTY - county code (see scc.dbf)  
+OWNERTYPE - type of owner (private or government)  
+OPENDATE - date of entry of inspection  
+CLOSEDATE - date of exit from inspection site  
+SIC - Standard Industrial Classification code  
+NAICS - North American Industry Classification System  
+INSPTYPE - inspection type  
+UNION - employees represented by union or not  
+LWDIRATE - Bureau of Labor Statistics last workday injury rate  
+PALITIGN - time spent preparing for court and testifying  
+PASUMHOURS - sum of all inspection activity hours reported  
+PENREMIT - total remitted penalty dollars  
+TOTPENLTY - total current penalties issued  
+TOTALVIOLS - total number of violations issued  
+TOTSERIOUS - total number of serious, willful, and repeat violations issued for inspection  
+
+  
+```{r}
+
+o <- select(o, OSHA1MOD, PREVCTTYP, ACTIVITYNO, ESTABNAME, SITEZIP, SITECITY,  SITECNTY, OWNERTYPE, OPENDATE, CLOSEDATE, SIC, NAICS, INSPTYPE, UNION, LWDIRATE, PALITIGN, PASUMHOURS, PENREMIT, TOTPENLTY, TOTALVIOLS, TOTSERIOUS)
+```
+  
+**1. Change coding of PREVCTTYP**
+```{r}
+levels(o$PREVCTTYP)
+levels(o$PREVCTTYP) <- c("accident", "complaint", "inspection", "referral")
+```
+  
+**2. Get SIC data from lookups**
+```{r warnring = FALSE}
+o <- left_join(o, looksic, by = "SIC")
+o <- select(o, -SIC)
+```
+  
+**3. NAIC**
+```{r warning = FALSE}
+o <- left_join(o, lookNAIC, by = "NAICS")
+o <- select(o, -NAICS)
+# If I sum all the NA values in the NAICS column and compare it to the NA values in the SIC column, we can see that the SIC column has a value for every observation, whereas NAICSTEXT column has 74645 NA values. For this reason, I will decide to keep the Standard Industry Classification and get rid of the North American Industry Classification.
+sum(is.na(o$INDUSTRY)==TRUE)
+sum(is.na(o$NAICSTEXT)==TRUE)
+o <- select(o, -NAICSTEXT)
+```
+  
+**4. Change coding of OWNERTYPE**
+```{r}
+levels(o$OWNERTYPE)
+levels(o$OWNERTYPE) <- c("private", "local government", "state government", "federal government")
+```
+  
+**5. SITECITY**
+```{r warning = FALSE}
+# Looking at lookscc, the coding for the different towns are made up of both the county code and the city code. I will make a new variable to identify this code.
+lookscc <- lookscc[(lookscc$STATE == "MA"),]
+lookscc$CITYCODE <- with(lookscc, interaction(COUNTY, CITY))
+lookscc <- select(lookscc, CITYCODE, NAME)
+o$CITYCODE <- with(o, interaction(SITECNTY, SITECITY))
+o <- left_join(o, lookscc, by = "CITYCODE")
+o <- select(o, -CITYCODE, -SITECNTY, -SITECITY)
+colnames(o)[19] <- "CITY"
+```
+  
+**6. Change coding of INSPTYPE**
+```{r}
+levels(o$INSPTYPE)
+# If I look in osha.txt, it shows me a differentiation between programmed and unprogrammed inspections. I will split this variable into 2 different variables; the type of programmed inspection, and the type of unprogrammed inspection.
+
+programmed <- mutate(o, PROG_INSPTYPE = INSPTYPE)%>%
+  select(PROG_INSPTYPE)
+levels(programmed$PROG_INSPTYPE) <- c(NA, NA, NA, NA, NA, NA, NA, "planned", "related", NA, "other", "non-inspection")
+
+unprogrammed <- mutate(o, UNPROG_INSPTYPE = INSPTYPE)%>%
+  select(UNPROG_INSPTYPE)
+levels(unprogrammed$UNPROG_INSPTYPE) <- c("fatality/catastrophe", "complaint", "referral", "monitoring", "variance", "follow-up", "related", NA, NA, "other", NA, NA)
+
+
+o <- o%>%
+  bind_cols(programmed)%>%
+  bind_cols(unprogrammed)%>%
+  select(-INSPTYPE)
+
+```
+  
+**7. Convert OSHA1MOD from integer to date**
+```{r warning = FALSE}
+o$OSHA1MOD <- ymd(o$OSHA1MOD)
+```
+  
+**8. OPENDATE**
+```{r warning = FALSE}
+o$OPENDATE <- ymd(o$OPENDATE)
+```
+  
+**9. CLOSEDATE**
+```{r warning = FALSE}
+o$CLOSEDATE <- ymd(o$CLOSEDATE)
+```
+  
+**10. Change the value of 0 in PASUMHOURS to NA since it is impossible to spend no time on the inspection if there was an inspection**
+```{r}
+is.na(o$PASUMHOURS) <- !o$PASUMHOURS
+```
+  
+**11. Change value of 00000 in SITEZIP to NA**
+```{r}
+o$SITEZIP[o$SITEZIP == "00000"] <-  NA
+```
+
+**12. Create DURATION variable that gives the number of days of inspection, for the inspections that lasted longer than one day**
+```{r}
+o <- mutate(o, INTERVAL=OPENDATE%--%CLOSEDATE)%>%
+  mutate(DURATION1 = as.duration(INTERVAL))%>%
+  mutate(DURATION = as.numeric(DURATION1, "days"))%>%
+  select(-INTERVAL, -DURATION1)
+
+is.na(o$DURATION) <- !o$DURATION
+```
+
+```{r echo = FALSE}
+qplot(x=DURATION, y=TOTSERIOUS, data=o,geom="point", color=OWNERTYPE)+xlim(c(0, 100))
+```
+  
+  
+  
+This histogram shows us that most of the inspections last less than 5 days:
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+ggplot(o) + geom_histogram(aes(x=DURATION), fill="red", alpha = .4) + xlim(c(0, 150))
+
+```
+
+  
+Save the cleaned data:
+```{r}
+o <- distinct(o)
+write.dbf(o, file="osha1.dbf")
+```
+```{r echo = FALSE}
+kable(o[1:10, ], caption = "A table of the cleaned osha.dbf data")
+```
+
+
+
+# Part Two: Cleaning viol.dbf
+
+Looking at all the variables for relevant ones: I will keep the following variables:
+
+ EMPHASIS - Value = X if  case is egregious -- I will have to change the coding for this variable  
+ GRAVITY - indicates level of potential harm, on a scale of 0 - 10  
+ PENCURRENT - current penalty OSHA has collected or intends to collect  
+ VIOLTYPE - current type of violation -- change the coding of values  
+ STD - kind of violation (federal or state standard cited)  
+ INSTANCES - number of instances of violation of standard related event  
+ REC - related event code -- I will use this to create a FATALITIES variable  
+ NUMEXPOSED - number of employees exposed to hazard  
+ DISPEVT - disposition of contested violation -- make a variable for court decisions  
+ HAZCAT - Hazardous category  
+
+
+```{r}
+v <- select(v, ACTIVITYNO, EMPHASIS, GRAVITY, PENCURRENT, INSTANCES, VIOLTYPE, STD, REC, NUMEXPOSED, DISPEVT, HAZCAT)
+```
+  
+**1. Change coding of Emphasis:**
+```{r}
+levels(v$EMPHASIS)
+levels(v$EMPHASIS) <- c("egregious")
+```
+  
+**2. Change coding of STD**
+```{r}
+colnames(lookSTD) <- c("STATE", "STD", "TEXT")
+v <- left_join(v, lookSTD, by="STD") 
+
+v <- select(v, -STATE, -STD)
+colnames(v)[11] <- "STD"
+```
+  
+**3. Change coding of VIOLTYPE**
+```{r}
+levels(v$VIOLTYPE)
+levels(v$VIOLTYPE) <- c("other", "repeat", "serious", "unclassified", "willful")
+```
+  
+**4. Change REC so that it only codes for fatalities**
+```{r}
+levels(v$REC)
+# Since the text file for VIOL does not give us information for some of the values in the data, I will only use the value assigned to fatality/catastrophe, as I think this represents the more dangerous workplaces.
+levels(v$REC) <- c(NA, "Fatality/Catastrophe", NA, NA, NA, NA ,NA, NA, NA, NA)
+colnames(v)[7] <- "FATALITY_CATASTROPHE"
+```
+
+
+  
+**5. Change DISPEVT so that it only codes for court cases**
+```{r}
+levels(v$DISPEVT)
+levels(v$DISPEVT) <- c("appeals court decision", "supreme court decision", "government dismissed case", "formal settlement agreement", "administrative law judge decision", NA, NA, NA)
+
+```
+  
+**6. Change coding of GRAVITY**
+```{r}
+levels(v$GRAVITY)
+levels(v$GRAVITY) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+```
+  
+And finally, we save the file:
+```{r}
+v <- distinct(v)
+write.dbf(v, file="violations.dbf")
+```
+
+```{r echo = FALSE}
+kable(v[1:10, ], caption = "A table of the cleaned viol.dbf data")
+
+```
+
+
+# Part Three: Cleaning accid.dbf
+
+Looking at all the variables for relevant ones: I will keep all the variables except for SITESTATE, NAME, and RELINSP.
+
+```{r}
+
+if(sum(a$SITESTATE=="MA")==dim(a)[1]){a%<>% select(-SITESTATE)}
+
+a <- select(a, -NAME, -RELINSP)
+```
+  
+**1. Change factors of DEGREE**
+```{r}
+# 1 - Change factors of DEGREE
+levels(a$DEGREE)
+levels(a$DEGREE) <- c("no injury", "fatality", "hospitalized", "non-hospitalized")
+```
+  
+**2. NATURE of injury**
+```{r}
+levels(lookAcc$CATEGORY)
+sum(lookAcc$CATEGORY=="NATUR-INJ")
+levels(a$NATURE)
+
+nature <- lookAcc[(lookAcc$CATEGORY == "NATUR-INJ"),]
+dim(nature)
+# Take CATEGORY out of new dataframe and change column names to join with accid.dbf
+nature <- select(nature, CODE, VALUE)
+colnames(nature) <- c("NATURE", "VALUE")
+a <- left_join(a, nature, by = "NATURE")
+
+# take out the column with the coding and rename the column with the values
+a <- select(a, -NATURE)
+colnames(a)[13] <- "NATURE"
+```
+
+**3. BODYPART**
+```{r}
+sum(lookAcc$CATEGORY=="PART-BODY")
+levels(a$BODYPART)
+parts <- lookAcc[(lookAcc$CATEGORY == "PART-BODY"),]
+
+parts <- select(parts, CODE, VALUE)
+colnames(parts) <- c("BODYPART", "VALUE")
+a <- left_join(a, parts, by= "BODYPART")
+
+a <- select(a, -BODYPART)
+colnames(a)[13] <- "BODYPART"
+```
+  
+**4. SOURCE of injury**
+```{r}
+sum(lookAcc$CATEGORY == "SOURC-INJ")
+levels(a$SOURCE)
+source <- lookAcc[(lookAcc$CATEGORY == "SOURC-INJ"),]
+
+source <- select(source, CODE, VALUE)
+colnames(source) <- c("SOURCE", "VALUE")
+a <- left_join(a, source, by = "SOURCE")
+
+a <- select(a, -SOURCE)
+colnames(a)[13] <- "SOURCE"
+```
+  
+**5. EVENT type**
+```{r}
+sum(lookAcc$CATEGORY == "EVENT-TYP")
+levels(a$EVENT)
+events <- lookAcc[(lookAcc$CATEGORY == "EVENT-TYP"),]
+
+events <- select(events, CODE, VALUE)
+colnames(events) <- c("EVENT", "VALUE")
+a <- left_join(a, events, by = "EVENT")
+
+a <- select(a, -EVENT)
+colnames(a)[13] <- "EVENT"
+```
+  
+**6. ENVIRON - contributing factor**
+```{r}
+sum(lookAcc$CATEGORY == "ENVIR-FAC")
+levels(a$ENVIRON)
+environ <- lookAcc[(lookAcc$CATEGORY == "ENVIR-FAC"),]
+
+environ <- select(environ, CODE, VALUE)
+colnames(environ) <- c("ENVIRON", "VALUE")
+a <- left_join(a, environ, by = "ENVIRON")
+
+a <- select(a, -ENVIRON)
+colnames(a)[13] <- "ENVIRON"
+```
+  
+**7. HUMAN factor**
+```{r}
+sum(lookAcc$CATEGORY == "HUMAN-FAC")
+levels(a$HUMAN)
+humanfac <- lookAcc[(lookAcc$CATEGORY == "HUMAN-FAC"),]
+
+humanfac <- select(humanfac, CODE, VALUE)
+colnames(humanfac) <- c("HUMAN", "VALUE")
+a <- left_join(a, humanfac, by = "HUMAN")
+
+a <- select(a, -HUMAN)
+colnames(a)[13] <- "HUMAN"
+```
+  
+**8. Change coding of TASK**
+```{r}
+levels(a$TASK)
+levels(a$TASK) <- c(NA, "regularly assigned task", "task other than regularly assigned")
+```
+  
+**9. HAZSUB**  
+```{r}
+colnames(lookhzs) <- c("HAZSUB", "VALUE")
+a <- left_join(a, lookhzs, by = "HAZSUB")
+
+a <- select(a, -HAZSUB)
+colnames(a)[13] <- "HAZSUB"
+```
+  
+**10. OCCUPATION**
+```{r}
+colnames(lookocc) <- c("OCC_CODE", "OCCUPATION")
+a <- left_join(a, lookocc, by = "OCC_CODE")
+a <- select(a, -OCC_CODE)
+```
+  
+**11. Change age of 0 to NA**
+```{r}
+is.na(a$AGE) <- !a$AGE
+
+```
+  
+And finally, save the file:
+```{r}
+a <- distinct(a)
+write.dbf(a, file = "accidents.dbf")
+```
+
+
+```{r, echo = FALSE}
+
+kable(a[1:10, ], caption = "A table of the cleaned accid.dbf")
+```
+  
+  
+  
+# Part 4: Joining all the datasets together
+
+```{r}
+
+finaldata <- left_join(o, v, by = "ACTIVITYNO")
+finaldata <- left_join(finaldata, a, by = "ACTIVITYNO")
+
+
+write.dbf(finaldata, file = "cleandata.dbf")
+```
+
+
+```{r echo = FALSE}
+
+kable(finaldata[1:10, ], caption = "A table of the cleaned data")
+```
+  
+  
+This graph shows us two things: before 1984, there was no coding for GRAVITY. Secondly, the values for GRAVITY are more extreme after about 1992, since there are no establishments that have a GRAVITY value of 7, 8, or 9.
+```{r echo = FALSE}
+ggplot(finaldata)+ geom_point(aes(x=OPENDATE, y=GRAVITY), color="turquoise", size=2)
+
+set=subset(finaldata, subset = VIOLTYPE == "serious")
+
+```
+
+
+
+
+
+
+
