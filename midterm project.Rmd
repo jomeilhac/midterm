@@ -99,7 +99,7 @@ levels(o$PREVCTTYP) <- c("accident", "complaint", "inspection", "referral")
 ```
   
 **2. Get SIC data from lookups**
-```{r warnring = FALSE}
+```{r warning = FALSE}
 o <- left_join(o, looksic, by = "SIC")
 o <- select(o, -SIC)
 ```
@@ -188,8 +188,16 @@ o <- mutate(o, INTERVAL=OPENDATE%--%CLOSEDATE)%>%
 is.na(o$DURATION) <- !o$DURATION
 ```
 
+**13. LWDIRATE**
+After looking at the variable LWDIRATE, I realize all the values are 0. I take this variable out of the data
+```{r}
+o <- select(o, -LWDIRATE)
+```
+
 ```{r echo = FALSE}
-qplot(x=DURATION, y=TOTSERIOUS, data=o,geom="point", color=OWNERTYPE)+xlim(c(0, 100))
+qplot(x=DURATION, y=TOTSERIOUS, data=o,geom="point", color=OWNERTYPE)+xlim(c(0, 250))
+
+ggplot(o) + geom_point(aes(x=TOTSERIOUS, y=TOTALVIOLS))
 ```
   
   
@@ -287,6 +295,19 @@ kable(v[1:10, ], caption = "A table of the cleaned viol.dbf data")
 
 ```
 
+```{r}
+set=subset(v, subset = VIOLTYPE == "serious")
+summary <- set%>%
+  group_by(DISPEVT)%>%
+  tally
+View(summary)
+x <- c(16, 3, 121, 7264, 339)
+label <- c("Appeals court decision", "Supreme court decision", "Government dismissed case", "Formal settlement agreement", "Administrative law judge decision")
+piepercent <- round(100*x/sum(x), 1)
+piepercent <- paste(piepercent, "%", sep="")
+pie(x, labels=piepercent, col=rainbow(length(x)), main = "Dispositions of  Serious Violations")
+legend("bottomleft", label, cex=0.8, fill=rainbow(length(x)))
+```
 
 # Part Three: Cleaning accid.dbf
 
@@ -367,7 +388,7 @@ colnames(a)[13] <- "EVENT"
 ```
   
 **6. ENVIRON - contributing factor**
-```{r}
+```{r warning = FALSE}
 sum(lookAcc$CATEGORY == "ENVIR-FAC")
 levels(a$ENVIRON)
 environ <- lookAcc[(lookAcc$CATEGORY == "ENVIR-FAC"),]
@@ -410,7 +431,7 @@ colnames(a)[13] <- "HAZSUB"
 ```
   
 **10. OCCUPATION**
-```{r}
+```{r warning = FALSE}
 colnames(lookocc) <- c("OCC_CODE", "OCCUPATION")
 a <- left_join(a, lookocc, by = "OCC_CODE")
 a <- select(a, -OCC_CODE)
@@ -455,11 +476,10 @@ kable(finaldata[1:10, ], caption = "A table of the cleaned data")
   
   
 This graph shows us two things: before 1984, there was no coding for GRAVITY. Secondly, the values for GRAVITY are more extreme after about 1992, since there are no establishments that have a GRAVITY value of 7, 8, or 9.
-```{r echo = FALSE}
+```{r echo = FALSE, warning = FALSE}
 ggplot(finaldata)+ geom_point(aes(x=OPENDATE, y=GRAVITY), color="turquoise", size=2)
 
-set=subset(finaldata, subset = VIOLTYPE == "serious")
-
+ggplot(finaldata) + stat_density(aes(x=PASUMHOURS, fill = EMPHASIS), alpha = 0.4)+ xlim(c(1, 5000))
 ```
 
 
