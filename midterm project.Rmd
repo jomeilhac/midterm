@@ -54,16 +54,20 @@ count(filter(o, CONTFLAG == "9"))
 ```
 
 There are only 2 observations which do not have a NA value in the CONTFLAG variable, which means only two establishments have a continuing record of violations. I will choose to take this variable out of the data.  
+   
     
 **JOBTITLE** : indicates the job classification of the officer conducting the inspection. I can take this variable out.  
+  
   
 **OWNERCODE**: Code if the type of owner = D (federal govt). When we count to see how many observations will have a value in this column, we find that 222 have codes for type of federal govt. I will take this variable out since it represents less than 0.3% of the data
 ```{r}
 count(filter(o, OWNERCODE>0))
 ```
 
-I do the same for other variables that are not of any interest to finding the most dangerous workplace. Here are the variables I will select:
 
+I do the same for other variables that are not of any interest to finding the most dangerous workplace. Here are the variables I will select:
+  
+  
 OSHA1MOD - latest date activity applied against record  
 PREVCTTYP - type of most recent OSHA activity, if any  
 ACTIVITYNO - ID number for inspection record  
@@ -92,17 +96,20 @@ TOTSERIOUS - total number of serious, willful, and repeat violations issued for 
 o <- select(o, OSHA1MOD, PREVCTTYP, ACTIVITYNO, ESTABNAME, SITEZIP, SITECITY,  SITECNTY, OWNERTYPE, OPENDATE, CLOSEDATE, SIC, NAICS, INSPTYPE, UNION, LWDIRATE, PALITIGN, PASUMHOURS, PENREMIT, TOTPENLTY, TOTALVIOLS, TOTSERIOUS)
 ```
   
+  
 **1. Change coding of PREVCTTYP**
 ```{r}
 levels(o$PREVCTTYP)
 levels(o$PREVCTTYP) <- c("accident", "complaint", "inspection", "referral")
 ```
   
+  
 **2. Get SIC data from lookups**
 ```{r warning = FALSE}
 o <- left_join(o, looksic, by = "SIC")
 o <- select(o, -SIC)
 ```
+  
   
 **3. NAIC**
 ```{r warning = FALSE}
@@ -114,11 +121,13 @@ sum(is.na(o$NAICSTEXT)==TRUE)
 o <- select(o, -NAICSTEXT)
 ```
   
+  
 **4. Change coding of OWNERTYPE**
 ```{r}
 levels(o$OWNERTYPE)
 levels(o$OWNERTYPE) <- c("private", "local government", "state government", "federal government")
 ```
+  
   
 **5. SITECITY**
 ```{r warning = FALSE}
@@ -131,6 +140,7 @@ o <- left_join(o, lookscc, by = "CITYCODE")
 o <- select(o, -CITYCODE, -SITECNTY, -SITECITY)
 colnames(o)[19] <- "CITY"
 ```
+  
   
 **6. Change coding of INSPTYPE**
 ```{r}
@@ -153,31 +163,37 @@ o <- o%>%
 
 ```
   
+  
 **7. Convert OSHA1MOD from integer to date**
 ```{r warning = FALSE}
 o$OSHA1MOD <- ymd(o$OSHA1MOD)
 ```
+  
   
 **8. OPENDATE**
 ```{r warning = FALSE}
 o$OPENDATE <- ymd(o$OPENDATE)
 ```
   
+  
 **9. CLOSEDATE**
 ```{r warning = FALSE}
 o$CLOSEDATE <- ymd(o$CLOSEDATE)
 ```
+  
   
 **10. Change the value of 0 in PASUMHOURS to NA since it is impossible to spend no time on the inspection if there was an inspection**
 ```{r}
 is.na(o$PASUMHOURS) <- !o$PASUMHOURS
 ```
   
+  
 **11. Change value of 00000 in SITEZIP to NA**
 ```{r}
 o$SITEZIP[o$SITEZIP == "00000"] <-  NA
 ```
-
+  
+  
 **12. Create DURATION variable that gives the number of days of inspection, for the inspections that lasted longer than one day**
 ```{r}
 o <- mutate(o, INTERVAL=OPENDATE%--%CLOSEDATE)%>%
@@ -187,17 +203,19 @@ o <- mutate(o, INTERVAL=OPENDATE%--%CLOSEDATE)%>%
 
 is.na(o$DURATION) <- !o$DURATION
 ```
-
+  
+  
 **13. LWDIRATE**
 After looking at the variable LWDIRATE, I realize all the values are 0. I take this variable out of the data
-```{r}
+```{r warning = FALSE}
 o <- select(o, -LWDIRATE)
 ```
 
+
+  **Graphs**
 ```{r echo = FALSE}
 qplot(x=DURATION, y=TOTSERIOUS, data=o,geom="point", color=OWNERTYPE)+xlim(c(0, 250))
 
-ggplot(o) + geom_point(aes(x=TOTSERIOUS, y=TOTALVIOLS))
 ```
   
   
@@ -207,7 +225,7 @@ This histogram shows us that most of the inspections last less than 5 days:
 ggplot(o) + geom_histogram(aes(x=DURATION), fill="red", alpha = .4) + xlim(c(0, 150))
 
 ```
-
+  
   
 Save the cleaned data:
 ```{r}
@@ -218,8 +236,8 @@ write.dbf(o, file="osha1.dbf")
 kable(o[1:10, ], caption = "A table of the cleaned osha.dbf data")
 ```
 
-
-
+  
+  
 # Part Two: Cleaning viol.dbf
 
 Looking at all the variables for relevant ones: I will keep the following variables:
@@ -240,11 +258,13 @@ Looking at all the variables for relevant ones: I will keep the following variab
 v <- select(v, ACTIVITYNO, EMPHASIS, GRAVITY, PENCURRENT, INSTANCES, VIOLTYPE, STD, REC, NUMEXPOSED, DISPEVT, HAZCAT)
 ```
   
+  
 **1. Change coding of Emphasis:**
 ```{r}
 levels(v$EMPHASIS)
 levels(v$EMPHASIS) <- c("egregious")
 ```
+  
   
 **2. Change coding of STD**
 ```{r}
@@ -255,11 +275,13 @@ v <- select(v, -STATE, -STD)
 colnames(v)[11] <- "STD"
 ```
   
+  
 **3. Change coding of VIOLTYPE**
 ```{r}
 levels(v$VIOLTYPE)
 levels(v$VIOLTYPE) <- c("other", "repeat", "serious", "unclassified", "willful")
 ```
+  
   
 **4. Change REC so that it only codes for fatalities**
 ```{r}
@@ -268,9 +290,8 @@ levels(v$REC)
 levels(v$REC) <- c(NA, "Fatality/Catastrophe", NA, NA, NA, NA ,NA, NA, NA, NA)
 colnames(v)[7] <- "FATALITY_CATASTROPHE"
 ```
-
-
   
+    
 **5. Change DISPEVT so that it only codes for court cases**
 ```{r}
 levels(v$DISPEVT)
@@ -278,11 +299,13 @@ levels(v$DISPEVT) <- c("appeals court decision", "supreme court decision", "gove
 
 ```
   
+  
 **6. Change coding of GRAVITY**
 ```{r}
 levels(v$GRAVITY)
 levels(v$GRAVITY) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 ```
+  
   
 And finally, we save the file:
 ```{r}
@@ -294,7 +317,9 @@ write.dbf(v, file="violations.dbf")
 kable(v[1:10, ], caption = "A table of the cleaned viol.dbf data")
 
 ```
-
+  
+  
+Pie Chart for serious violations:
 ```{r}
 set=subset(v, subset = VIOLTYPE == "serious")
 summary <- set%>%
@@ -308,7 +333,9 @@ piepercent <- paste(piepercent, "%", sep="")
 pie(x, labels=piepercent, col=rainbow(length(x)), main = "Dispositions of  Serious Violations")
 legend("bottomleft", label, cex=0.8, fill=rainbow(length(x)))
 ```
-
+  
+  
+  
 # Part Three: Cleaning accid.dbf
 
 Looking at all the variables for relevant ones: I will keep all the variables except for SITESTATE, NAME, and RELINSP.
@@ -320,12 +347,14 @@ if(sum(a$SITESTATE=="MA")==dim(a)[1]){a%<>% select(-SITESTATE)}
 a <- select(a, -NAME, -RELINSP)
 ```
   
+  
 **1. Change factors of DEGREE**
 ```{r}
 # 1 - Change factors of DEGREE
 levels(a$DEGREE)
 levels(a$DEGREE) <- c("no injury", "fatality", "hospitalized", "non-hospitalized")
 ```
+  
   
 **2. NATURE of injury**
 ```{r}
@@ -344,7 +373,8 @@ a <- left_join(a, nature, by = "NATURE")
 a <- select(a, -NATURE)
 colnames(a)[13] <- "NATURE"
 ```
-
+  
+  
 **3. BODYPART**
 ```{r}
 sum(lookAcc$CATEGORY=="PART-BODY")
@@ -358,6 +388,7 @@ a <- left_join(a, parts, by= "BODYPART")
 a <- select(a, -BODYPART)
 colnames(a)[13] <- "BODYPART"
 ```
+  
   
 **4. SOURCE of injury**
 ```{r}
@@ -373,6 +404,7 @@ a <- select(a, -SOURCE)
 colnames(a)[13] <- "SOURCE"
 ```
   
+  
 **5. EVENT type**
 ```{r}
 sum(lookAcc$CATEGORY == "EVENT-TYP")
@@ -386,6 +418,7 @@ a <- left_join(a, events, by = "EVENT")
 a <- select(a, -EVENT)
 colnames(a)[13] <- "EVENT"
 ```
+  
   
 **6. ENVIRON - contributing factor**
 ```{r warning = FALSE}
@@ -401,6 +434,7 @@ a <- select(a, -ENVIRON)
 colnames(a)[13] <- "ENVIRON"
 ```
   
+  
 **7. HUMAN factor**
 ```{r}
 sum(lookAcc$CATEGORY == "HUMAN-FAC")
@@ -415,11 +449,13 @@ a <- select(a, -HUMAN)
 colnames(a)[13] <- "HUMAN"
 ```
   
+  
 **8. Change coding of TASK**
 ```{r}
 levels(a$TASK)
 levels(a$TASK) <- c(NA, "regularly assigned task", "task other than regularly assigned")
 ```
+  
   
 **9. HAZSUB**  
 ```{r}
@@ -430,6 +466,7 @@ a <- select(a, -HAZSUB)
 colnames(a)[13] <- "HAZSUB"
 ```
   
+  
 **10. OCCUPATION**
 ```{r warning = FALSE}
 colnames(lookocc) <- c("OCC_CODE", "OCCUPATION")
@@ -437,11 +474,13 @@ a <- left_join(a, lookocc, by = "OCC_CODE")
 a <- select(a, -OCC_CODE)
 ```
   
+  
 **11. Change age of 0 to NA**
 ```{r}
 is.na(a$AGE) <- !a$AGE
 
 ```
+  
   
 And finally, save the file:
 ```{r}
@@ -481,9 +520,6 @@ ggplot(finaldata)+ geom_point(aes(x=OPENDATE, y=GRAVITY), color="turquoise", siz
 
 ggplot(finaldata) + stat_density(aes(x=PASUMHOURS, fill = EMPHASIS), alpha = 0.4)+ xlim(c(1, 5000))
 ```
-
-
-
 
 
 
